@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img alt="ISDBT-Analyzer" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/images/isdbt-analyzer-icon.png" width="240"/>
+  <img alt="ISDBT Analyzer" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/images/isdbt-analyzer-icon.png" width="240"/>
   <br>
 </h1>
 
@@ -43,10 +43,6 @@ This project was used with the following technologies:
 - [Pillow (PIL)](https://python-pillow.org/)
 - [PyInstaller (empacotamento)](https://pyinstaller.org/)
 
-Arquivos principais:
-- `isdbt_gui.py` — Interface gráfica (português)
-- `isdbt_tool.py` — Núcleo de cálculos (BER, taxa de dados, canal AWGN e utilitários)
-
 ## :information_source: How To Use
 
 Clone o repositório e execute localmente:
@@ -63,9 +59,7 @@ O projeto está funcional e em evolução.
 Próximos passos (sugestões):
 
 Implementar curvas BER com FEC mais realistas (Viterbi/RS) em vez do ganho fixo.
-
 Adicionar perfis de canal (Brasil A/B/C/D/E com multi-caminho).
-
 Exportar relatórios em PDF/PNG a partir da GUI.
 
 <p align="center"> <img alt="Ícone" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/images/isdbt-analyzer-icon.png" width="200"> </p>
