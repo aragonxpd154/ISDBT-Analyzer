@@ -26,9 +26,12 @@ transmitida sob ruído AWGN (QPSK/16-QAM/64-QAM).
   <a href="#status">Development Status</a>&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;
   <a href="#memo-license">License</a>
 </p>
+<p align="center">
+<img alt="Demo on Photo" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/main/images/isdbt-analyzer-icon.png">
+</p>
 
 <p align="center">
-  <!-- Exemplo: insira aqui screenshots ou GIF de demonstração -->
+  <!-- Demonstração -->
   <!-- <img alt="Demo" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/images/demo.gif"> -->
 </p>
 
@@ -58,11 +61,10 @@ cd ISDBT-Analyzer
 O projeto está funcional e em evolução.
 Próximos passos (sugestões):
 
-Implementar curvas BER com FEC mais realistas (Viterbi/RS) em vez do ganho fixo.
-Adicionar perfis de canal (Brasil A/B/C/D/E com multi-caminho).
-Exportar relatórios em PDF/PNG a partir da GUI.
+<br>Implementar curvas BER com FEC mais realistas (Viterbi/RS) em vez do ganho fixo.
+<br>Adicionar perfis de canal (Brasil A/B/C/D/E com multi-caminho).
+<br>Exportar relatórios em PDF/PNG a partir da GUI.
 
-<p align="center"> <img alt="Ícone" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/images/isdbt-analyzer-icon.png" width="200"> </p>
 :memo: License
 
 Este projeto é distribuído sob GPL v3.0. Veja LICENSE para mais detalhes.
