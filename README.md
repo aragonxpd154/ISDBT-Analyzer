@@ -32,17 +32,17 @@ transmitida sob ruído AWGN (QPSK/16-QAM/64-QAM).
 
 <p align="center">
   <!-- Demonstração -->
-   <img alt="Demo" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/images/1.png"> 
+   <img alt="Demo" src="https://github.com/aragonxpd154/ISDBT-Analyzer/blob/main/main/images/1.png"> 
 </p>
 
 <p align="center">
   <!-- Demonstração -->
-   <img alt="Demo" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/images/2.png"> 
+   <img alt="Demo" src="https://github.com/aragonxpd154/ISDBT-Analyzer/blob/main/main/images/2.png">  
 </p>
 
 <p align="center">
   <!-- Demonstração -->
-   <img alt="Demo" src="https://raw.githubusercontent.com/aragonxpd154/ISDBT-Analyzer/main/images/3.png"> 
+   <img alt="Demo" src="https://github.com/aragonxpd154/ISDBT-Analyzer/blob/main/main/images/3.png"> 
 </p>
 
 ## :rocket: Technologies
