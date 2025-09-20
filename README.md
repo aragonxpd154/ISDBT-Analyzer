@@ -75,6 +75,13 @@ Próximos passos (sugestões):
 <br>Adicionar perfis de canal (Brasil A/B/C/D/E com multi-caminho).
 <br>Exportar relatórios em PDF/PNG a partir da GUI.
 
+
+💻 Correções de bugs
+
+<br>Sem esticar: ImageOps.contain nunca distorce; ele só reduz quando ultrapassa os limites definidos.
+<br>Sem perder qualidade dos cálculos: a imagem “de verdade” (para degradação/BER) continua em resolução original; apenas a cópia para exibição é reduzida.
+<br>Sem expansão máxima da janela: img_window.resizable(False, False) impede a UI de forçar o conteúdo a expandir.
+
 :memo: License
 
 Este projeto é distribuído sob GPL v3.0. Veja LICENSE para mais detalhes.
