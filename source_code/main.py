@@ -25,6 +25,10 @@ Usage::
 
 """
 
+__APP_NAME__ = "Previsor de Desempenho ISDB-T"
+__AUTHOR__   = "Marcos Silva dos Santos"
+__VERSION__  = "1.1.0"
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 from tkinter.filedialog import askopenfilename
@@ -51,15 +55,58 @@ class ISDBTGui(tk.Tk):
     um link de referência.
     """
 
+    def _build_menubar(self):
+        menubar = tk.Menu(self)
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="Sobre…", command=self._show_about)
+        menubar.add_cascade(label="Ajuda", menu=help_menu)
+
+    def _show_about(self):
+        about_txt = (
+            f"{__APP_NAME__}\n"
+            f"Versão: {__VERSION__}\n"
+            f"Desenvolvido por: {__AUTHOR__}"
+        )
+        messagebox.showinfo("Sobre", about_txt)
+        self.config(menu=menubar)
+    
+    def _build_statusbar(self):
+        # Descobre quantas colunas/linhas já existem na raiz
+        cols, rows = self.grid_size()
+        if cols == 0:
+            cols = 1  # fallback
+
+        # Frame da barra de status, posicionado com GRID na última linha
+        self.status_frame = ttk.Frame(self)
+        self.status_frame.grid(row=rows, column=0, columnspan=cols, sticky="ew")
+        # Faz a linha/coluna esticarem
+        self.grid_columnconfigure(0, weight=1)
+        self.status_frame.columnconfigure(0, weight=1)
+
+        # (Opcional) separador visual acima da barra
+        sep = ttk.Separator(self, orient="horizontal")
+        sep.grid(row=rows-1, column=0, columnspan=cols, sticky="ew")
+
+        # Conteúdo da barra de status — aqui dentro, pode usar PACK à vontade
+        self.status_var = tk.StringVar(
+            value=f"{__APP_NAME__}  •  v{__VERSION__}  •  {__AUTHOR__}"
+        )
+        status = ttk.Label(self.status_frame, textvariable=self.status_var, anchor="w")
+        status.pack(side="left", padx=6, pady=2)
+
     def __init__(self):
         super().__init__()
         # Título da janela principal
-        self.title("Previsor de Desempenho ISDB‑T")
+        self.title(f"{__APP_NAME__} — v{__VERSION__} (por {__AUTHOR__})")
         self.resizable(False, False)
         # >>> Limites máximos para a EXIBIÇÃO (não afetam a imagem original)
         self.MAX_DISPLAY_W = 900   # ajuste maximo
         self.MAX_DISPLAY_H = 500   # ajuste maximo
         self.create_widgets()
+        # barra de status (rodapé)
+        self._build_statusbar()
+        self._build_menubar()
 
     def create_widgets(self):
         """Create and arrange all widgets in the window."""
@@ -122,6 +169,11 @@ class ISDBTGui(tk.Tk):
 
         # Botão para executar a simulação
         ttk.Button(self, text="Executar simulação", command=self.run_simulation).grid(row=1, column=0, padx=10, pady=(0, 10))
+
+        # Linha de separação (agora entre os botões)
+        sep = ttk.Separator(self, orient="horizontal")
+        sep.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(10, 10))
+        
         # Botão Sobre
         ttk.Button(self, text="Sobre", command=self.show_about).grid(row=2, column=0, padx=10, pady=(0, 10))
 
@@ -175,7 +227,7 @@ class ISDBTGui(tk.Tk):
                 img = Image.open(self.image_path).convert('L')
             else:
                 grad = np.linspace(0, 255, 256, dtype=np.uint8)
-                img = Image.fromarray(np.tile(grad, (256, 1)), mode='L')
+                img = Image.fromarray(np.tile(grad, (256, 1)).astype(np.uint8))
 
             # Calcular curvas de BER teórica
             ber_uncoded = isdbt_tool.theoretical_ber(modulation, ebn0_range)
