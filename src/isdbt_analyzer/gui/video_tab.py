@@ -124,6 +124,8 @@ class VideoTab(QWidget):
         st = self.state
         lay = st.focus()
         self.btn_sim.setEnabled(False)
+        self.info.setText(f"Simulando a camada {lay.name} ({lay.modulation} {lay.code_rate}) com C/N "
+                          f"{st.cn_db:.1f} dB no canal {st.channel_name}…")
         self.progress.setVisible(True)
         self.progress.setValue(0)
         self.sim_params = (st.cn_db, lay)
@@ -150,10 +152,14 @@ class VideoTab(QWidget):
         self.seek.setRange(0, max(0, self.n_frames - 1))
         self.v_rx.set_caption(f"TS recebido · C/N {cn:.1f} dB · camada {lay.name} ({lay.modulation} {lay.code_rate})")
         s = r.stats
-        self.info.setText(
-            f"<b>PER prevista</b> {per:.2e} · <b>pacotes TS</b> {s.packets:,} · <b>corrompidos</b> {s.corrupted:,} "
-            f"({s.per * 100:.3g} %) · vídeo H.264 a {r.video_bitrate / 1e6:.2f} Mb/s dentro de "
-            f"{self.state.cfg.layer_rate(lay) / 1e6:.2f} Mb/s".replace(",", "."))
+        txt = (f"<b>PER prevista</b> {per:.2e} · <b>pacotes TS</b> {s.packets:,} · <b>corrompidos</b> "
+               f"{s.corrupted:,} ({s.per * 100:.3g} %) · vídeo H.264 a {r.video_bitrate / 1e6:.2f} Mb/s dentro de "
+               f"{self.state.cfg.layer_rate(lay) / 1e6:.2f} Mb/s").replace(",", ".")
+        if r.no_signal:
+            txt = (f"<span style='color:#e5484d'><b>SEM SINAL</b></span> — com C/N {cn:.1f} dB quase todos os "
+                   "pacotes se perdem e nada chega decodificável, como numa TV real. Suba o C/N acima do QEF "
+                   "da camada (veja a margem no painel).<br>" + txt)
+        self.info.setText(txt)
         self._enable_player(True)
         self.timer.start(int(1000 / r.fps))
         self.btn_play.setText("⏸")

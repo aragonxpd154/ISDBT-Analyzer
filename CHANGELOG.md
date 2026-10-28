@@ -1,5 +1,15 @@
 # Histórico de versões
 
+## 2.0.2 — vídeo com perda maciça de pacotes
+
+- **Corrige "FFmpeg falhou … no decoder found for: avs2".** Abaixo do QEF, quase todos os pacotes se perdiam,
+  inclusive a PAT e a PMT. A PMT corrompida fazia o FFmpeg tomar o vídeo por outro formato. Agora o simulador
+  age como um receptor já sintonizado, que guarda a PAT e a PMT em cache. O decodificador H.264 é forçado e
+  não aborta por excesso de erros.
+- **Tela "SEM SINAL"**: com perda de 90% ou mais (ou nada decodificável), o receptor perde o sincronismo e
+  mostra "SEM SINAL", como numa TV real, em vez de dar erro. A mensagem explica e sugere subir o C/N.
+- A aba de vídeo limpa os números da simulação anterior ao começar uma nova.
+
 ## 2.0.1 — desempenho da interface
 
 - **Interface não trava mais.** As constelações viraram um mapa de densidade com persistência, sem eixos

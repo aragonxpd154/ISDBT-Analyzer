@@ -73,3 +73,14 @@ def test_video_heavy_corruption_terminates(tmp_path):
     n_orig = video.count_frames(r.original_view)
     assert r.stats.corrupted > 0
     assert 0 < video.count_frames(r.corrupted_view) <= n_orig
+
+
+def test_video_total_loss_shows_no_signal(tmp_path):
+    """Regressão: com perda total, a PMT corrompida fazia o FFmpeg falhar ('no decoder found for avs2')."""
+    from isdbt_analyzer.core import video
+    if not video.find_ffmpeg():
+        pytest.skip("FFmpeg indisponível")
+    r = video.simulate_video(None, 5e6, per=1.0, byte_error=0.3, workdir=tmp_path, seed=1, max_seconds=2)
+    assert r.no_signal
+    assert video.count_frames(r.corrupted_view) == video.count_frames(r.original_view)
+    assert 0 in r.stats.psi_pids and len(r.stats.psi_pids) >= 2   # PAT + PMT preservadas

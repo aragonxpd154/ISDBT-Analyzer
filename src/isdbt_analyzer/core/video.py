@@ -47,6 +47,7 @@ class TsStats:
     corrupted: int = 0
     per_target: float = 0.0
     by_pid: dict | None = None
+    psi_pids: tuple = ()
 
     @property
     def per(self) -> float:
@@ -62,9 +63,11 @@ class VideoSimResult:
     stats: TsStats
     fps: float
     video_bitrate: float
+    no_signal: bool = False  # nada decodificável: o receptor mostra "SEM SINAL"
 
 
 FFMPEG_TIMEOUT_S = 180
+NO_SIGNAL_PER = 0.9  # acima disso o receptor perde o sincronismo
 
 
 def _lower_priority() -> None:  # roda no processo filho, antes do FFmpeg
@@ -132,8 +135,36 @@ def encode_ts(ffmpeg: str, src: Path, out: Path, mux_rate_bps: float, max_second
     return video
 
 
-def corrupt_ts(src: Path, dst: Path, per: float, byte_error: float, seed: int | None = None) -> TsStats:
-    """Corrompe pacotes TS com probabilidade `per` (falha do RS)."""
+def psi_pids(pk: np.ndarray, pid: np.ndarray) -> set[int]:
+    """PIDs da PAT (0) e das PMTs, lidos da primeira PAT do arquivo."""
+    out = {0}
+    for row in pk[pid == 0]:
+        if not row[1] & 0x40:          # sem payload_unit_start
+            continue
+        afc = (row[3] >> 4) & 0x3
+        pos = 4
+        if afc & 0x2:
+            pos += 1 + int(row[4])
+        pos += 1 + int(row[pos])       # pointer_field
+        sec_len = ((int(row[pos + 1]) & 0x0F) << 8) | int(row[pos + 2])
+        start, end = pos + 8, pos + 3 + sec_len - 4  # laço de programas (sem CRC)
+        for i in range(start, min(end, P.TSP_BYTES - 3), 4):
+            prog = (int(row[i]) << 8) | int(row[i + 1])
+            pmt = ((int(row[i + 2]) & 0x1F) << 8) | int(row[i + 3])
+            if prog != 0:
+                out.add(pmt)
+        break
+    return out
+
+
+def corrupt_ts(src: Path, dst: Path, per: float, byte_error: float, seed: int | None = None,
+               keep_psi: bool = True) -> TsStats:
+    """Corrompe pacotes TS com probabilidade `per` (falha do RS).
+
+    Com `keep_psi`, a PAT e as PMTs não são corrompidas: um receptor já
+    sintonizado guarda essas tabelas em cache e continua sabendo que o vídeo é
+    H.264, mesmo quando o sinal está péssimo.
+    """
     rng = np.random.default_rng(seed)
     data = np.frombuffer(src.read_bytes(), dtype=np.uint8).copy()
     n = data.size // P.TSP_BYTES
@@ -142,6 +173,9 @@ def corrupt_ts(src: Path, dst: Path, per: float, byte_error: float, seed: int | 
         raise ValueError("Arquivo não parece um TS de 188 bytes (sync 0x47 ausente).")
     pid = ((pk[:, 1].astype(np.int32) & 0x1F) << 8) | pk[:, 2]
     bad = rng.random(n) < per
+    keep = psi_pids(pk, pid) if keep_psi else set()
+    if keep:
+        bad &= ~np.isin(pid, list(keep))
     p_bad = max(byte_error, (P.RS_T + 1) / P.RS_N)
     idx = np.flatnonzero(bad)
     if idx.size:
@@ -155,7 +189,8 @@ def corrupt_ts(src: Path, dst: Path, per: float, byte_error: float, seed: int | 
     for p in np.unique(pid):
         sel = pid == p
         by_pid[int(p)] = (int(sel.sum()), int(bad[sel].sum()))
-    return TsStats(packets=int(n), corrupted=int(bad.sum()), per_target=per, by_pid=by_pid)
+    return TsStats(packets=int(n), corrupted=int(bad.sum()), per_target=per, by_pid=by_pid,
+                   psi_pids=tuple(sorted(keep)))
 
 
 def decode_for_view(ffmpeg: str, ts: Path, out: Path, fps: float, max_frames: int | None = None) -> None:
@@ -166,11 +201,45 @@ def decode_for_view(ffmpeg: str, ts: Path, out: Path, fps: float, max_frames: in
     de quadros do original.
     """
     cmd = [ffmpeg, "-y", "-loglevel", "error", "-err_detect", "ignore_err", "-fflags", "+genpts",
-           "-i", str(ts), "-map", "0:v:0", "-an", "-fps_mode", "cfr", "-r", f"{fps:.3f}"]
+           "-c:v", "h264",                 # o receptor sabe que é H.264 (não confia na sondagem)
+           "-i", str(ts), "-map", "0:v:0", "-an", "-fps_mode", "cfr", "-r", f"{fps:.3f}",
+           "-max_error_rate", "1.0"]       # não desiste por excesso de erros de decodificação
     if max_frames:
         cmd += ["-frames:v", str(int(max_frames))]
     cmd += ["-c:v", "mjpeg", "-q:v", "4", str(out)]
     _run(cmd)
+
+
+def write_no_signal(out: Path, n_frames: int, fps: float, size: tuple[int, int] = (1280, 720)) -> None:
+    """Grava um vídeo preto com "SEM SINAL", como a tela da TV quando o sinal some."""
+    import cv2
+    w, h = size
+    frame = np.zeros((h, w, 3), np.uint8)
+    text = "SEM SINAL"
+    scale = max(1.0, w / 640)
+    thick = max(2, int(scale * 2))
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale * 1.6, thick)
+    cv2.putText(frame, text, ((w - tw) // 2, (h + th) // 2), cv2.FONT_HERSHEY_SIMPLEX, scale * 1.6,
+                (230, 230, 230), thick, cv2.LINE_AA)
+    writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"MJPG"), float(fps), (w, h))
+    if not writer.isOpened():
+        raise RuntimeError("Não foi possível gravar o vídeo de 'sem sinal'.")
+    for _ in range(max(1, n_frames)):
+        writer.write(frame)
+    writer.release()
+
+
+def frame_size(path: Path) -> tuple[int, int]:
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(path))
+        w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        if w > 0 and h > 0:
+            return w, h
+    except Exception:  # noqa: BLE001
+        pass
+    return 1280, 720
 
 
 def count_frames(path: Path) -> int:
@@ -226,6 +295,17 @@ def simulate_video(src: Path | None, mux_rate_bps: float, per: float, byte_error
     decode_for_view(ffmpeg, orig, ov, fps)
     step(80, "Decodificando recebido…")
     cv = work / "corrompido_view.avi"
-    decode_for_view(ffmpeg, bad, cv, fps, max_frames=count_frames(ov) or int(fps * max_seconds))
+    n_orig = count_frames(ov) or int(fps * max_seconds)
+    # com perda maciça o receptor perde o sincronismo e mostra "sem sinal"
+    no_signal = stats.per >= NO_SIGNAL_PER
+    if not no_signal:
+        try:
+            decode_for_view(ffmpeg, bad, cv, fps, max_frames=n_orig)
+            no_signal = count_frames(cv) == 0
+        except RuntimeError:
+            no_signal = True  # nada decodificável
+    if no_signal:
+        cv.unlink(missing_ok=True)
+        write_no_signal(cv, n_orig, fps, frame_size(ov))
     step(100, "Pronto")
-    return VideoSimResult(orig, bad, ov, cv, stats, fps, vrate)
+    return VideoSimResult(orig, bad, ov, cv, stats, fps, vrate, no_signal)
