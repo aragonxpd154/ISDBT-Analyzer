@@ -43,8 +43,22 @@ class OfdmTab(QWidget):
         self.fig = Figure(figsize=(9, 3.6), dpi=100)
         self.canvas = FigureCanvasQTAgg(self.fig)
         root.addWidget(self.canvas, 3)
-        state.changed.connect(self.refresh)
-        self.refresh()
+        state.changed.connect(self.request)
+        self._dirty = True
+
+    # ------------------------------------------------------------ redesenho só quando visível
+    def request(self) -> None:
+        if self.isVisible():
+            self._dirty = False
+            self.refresh()
+        else:
+            self._dirty = True
+
+    def showEvent(self, ev) -> None:  # noqa: N802
+        super().showEvent(ev)
+        if getattr(self, "_dirty", True):
+            self._dirty = False
+            self.refresh()
 
     def refresh(self) -> None:
         st = self.state

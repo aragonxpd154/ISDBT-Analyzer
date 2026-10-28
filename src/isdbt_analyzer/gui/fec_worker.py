@@ -8,17 +8,29 @@ fila e devolve contadores parciais por outra.
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
 import queue
 
-import numpy as np
+FIRST_BATCH = 12  # primeiro lote pequeno: o primeiro número aparece rápido depois de mexer no C/N
+BATCH = 64        # depois, lotes maiores rendem mais pacotes por segundo
 
 
 def _loop(cmd_q, out_q) -> None:  # executa no processo filho
+    # prioridade baixa: a simulação usa a CPU que sobrar, sem disputar com a janela
+    try:
+        os.nice(10)
+    except (OSError, AttributeError):
+        pass
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ[var] = "1"
+    import numpy as np
+
     from ..core.channel import ChannelState
     from ..core.fec import simulate_chain
 
     params = None
     state = None
+    first = True
     rng = np.random.default_rng()
     running = True
     while True:
@@ -40,12 +52,14 @@ def _loop(cmd_q, out_q) -> None:  # executa no processo filho
             if kind == "params":
                 params = msg[1]
                 state = ChannelState.build(params["profile"], params["cfg"])
+                first = True
                 running = True
                 continue
         if params is None or not running:
             continue
         res, _ = simulate_chain(params["modulation"], params["code_rate"], state, params["cn"],
-                                params.get("batch", 96), rng)
+                                FIRST_BATCH if first else BATCH, rng)
+        first = False
         out_q.put((params["epoch"], {
             "bits": res.bits, "raw_bits": res.raw_bits, "raw_bit_errors": res.raw_bit_errors,
             "vit_bit_errors": res.vit_bit_errors, "bytes_total": res.bytes_total,

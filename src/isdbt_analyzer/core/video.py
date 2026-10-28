@@ -14,6 +14,7 @@ e cortes de áudio), que não aparecem numa simples adição de ruído aos pixel
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -63,10 +64,46 @@ class VideoSimResult:
     video_bitrate: float
 
 
-def _run(cmd: list[str]) -> None:
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+FFMPEG_TIMEOUT_S = 180
+
+
+def _lower_priority() -> None:  # roda no processo filho, antes do FFmpeg
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+
+
+_active: set[subprocess.Popen] = set()
+
+
+def kill_active() -> None:
+    """Encerra qualquer FFmpeg ainda rodando (chamado ao fechar o programa)."""
+    for proc in list(_active):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    _active.clear()
+
+
+def _run(cmd: list[str], timeout: float = FFMPEG_TIMEOUT_S) -> None:
+    """Roda o FFmpeg com prioridade baixa e tempo máximo (nunca deixa a simulação presa)."""
+    if "-threads" not in cmd:
+        cmd = cmd[:1] + ["-threads", "2"] + cmd[1:]
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+                            preexec_fn=_lower_priority if os.name == "posix" else None)
+    _active.add(proc)
+    try:
+        _, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        proc.communicate()
+        raise RuntimeError(f"O FFmpeg passou de {timeout:.0f} s e foi interrompido.") from exc
+    finally:
+        _active.discard(proc)
     if proc.returncode != 0:
-        tail = "\n".join(proc.stderr.strip().splitlines()[-8:])
+        tail = "\n".join((stderr or "").strip().splitlines()[-8:])
         raise RuntimeError(f"FFmpeg falhou:\n{tail}")
 
 
@@ -121,11 +158,30 @@ def corrupt_ts(src: Path, dst: Path, per: float, byte_error: float, seed: int | 
     return TsStats(packets=int(n), corrupted=int(bad.sum()), per_target=per, by_pid=by_pid)
 
 
-def decode_for_view(ffmpeg: str, ts: Path, out: Path, fps: float) -> None:
-    """Decodifica o TS (tolerando erros) para MJPEG em CFR, para exibição."""
-    _run([ffmpeg, "-y", "-loglevel", "error", "-err_detect", "ignore_err", "-fflags", "+genpts",
-          "-i", str(ts), "-map", "0:v:0", "-an", "-fps_mode", "cfr", "-r", f"{fps:.3f}",
-          "-c:v", "mjpeg", "-q:v", "4", str(out)])
+def decode_for_view(ffmpeg: str, ts: Path, out: Path, fps: float, max_frames: int | None = None) -> None:
+    """Decodifica o TS (tolerando erros) para MJPEG em CFR, para exibição.
+
+    Um pacote corrompido pode estragar o PTS e fazer o modo CFR "preencher" um
+    buraco enorme com quadros repetidos. Por isso, a saída é limitada ao número
+    de quadros do original.
+    """
+    cmd = [ffmpeg, "-y", "-loglevel", "error", "-err_detect", "ignore_err", "-fflags", "+genpts",
+           "-i", str(ts), "-map", "0:v:0", "-an", "-fps_mode", "cfr", "-r", f"{fps:.3f}"]
+    if max_frames:
+        cmd += ["-frames:v", str(int(max_frames))]
+    cmd += ["-c:v", "mjpeg", "-q:v", "4", str(out)]
+    _run(cmd)
+
+
+def count_frames(path: Path) -> int:
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(path))
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        cap.release()
+        return n
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 def probe_fps(path: Path) -> float:
@@ -170,6 +226,6 @@ def simulate_video(src: Path | None, mux_rate_bps: float, per: float, byte_error
     decode_for_view(ffmpeg, orig, ov, fps)
     step(80, "Decodificando recebido…")
     cv = work / "corrompido_view.avi"
-    decode_for_view(ffmpeg, bad, cv, fps)
+    decode_for_view(ffmpeg, bad, cv, fps, max_frames=count_frames(ov) or int(fps * max_seconds))
     step(100, "Pronto")
     return VideoSimResult(orig, bad, ov, cv, stats, fps, vrate)

@@ -168,13 +168,23 @@ class VideoTab(QWidget):
             for c in self.caps:
                 c.set(cv2.CAP_PROP_POS_FRAMES, 0)
             return
-        self.v_orig.set_image(bgr_to_qimage(f1))
-        self.v_rx.set_image(bgr_to_qimage(f2))
+        self.v_orig.set_image(bgr_to_qimage(self._fit(f1, self.v_orig)))
+        self.v_rx.set_image(bgr_to_qimage(self._fit(f2, self.v_rx)))
         pos = int(a.get(cv2.CAP_PROP_POS_FRAMES))
         self.seek.blockSignals(True)
         self.seek.setValue(pos)
         self.seek.blockSignals(False)
         self.time_lbl.setText(f"{pos / self.result.fps:.1f} s".replace(".", ","))
+
+    @staticmethod
+    def _fit(frame, view):
+        """Reduz o quadro ao tamanho da tela antes de desenhar (bem mais leve que escalar no paint)."""
+        h, w = frame.shape[:2]
+        ratio = view.devicePixelRatioF()
+        s = min(view.width() * ratio / w, (view.height() - 22) * ratio / h, 1.0)
+        if s < 0.98:
+            frame = cv2.resize(frame, (max(1, int(w * s)), max(1, int(h * s))), interpolation=cv2.INTER_AREA)
+        return frame
 
     def toggle_play(self) -> None:
         if self.timer.isActive():
@@ -211,5 +221,6 @@ class VideoTab(QWidget):
             self.toggle_play()
 
     def cleanup(self) -> None:
+        video.kill_active()
         self.stop_player()
         shutil.rmtree(self.workdir, ignore_errors=True)

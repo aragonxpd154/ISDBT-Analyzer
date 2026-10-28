@@ -127,8 +127,8 @@ class MainWindow(QMainWindow):
         self.settings.setValue("dark", dark)
         self.pipeline.apply_theme()
         self.pipeline.on_state()
-        self.perf.redraw()
-        self.ofdm.refresh()
+        self.perf.request()
+        self.ofdm.request()
         self.update()
 
     def _tab_changed(self, idx: int) -> None:
@@ -193,7 +193,7 @@ def run() -> int:
     dark = QSettings("ObelLab", "ISDBT-Analyzer").value("dark", True, type=bool)
     theme.apply(app, dark)
     import pyqtgraph as pg
-    pg.setConfigOptions(antialias=True)
+    pg.setConfigOptions(antialias=False)  # desenho mais leve; as constelações usam mapa de densidade
     win = MainWindow(dark)
     win.show()
     return app.exec()

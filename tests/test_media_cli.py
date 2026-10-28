@@ -62,3 +62,14 @@ def test_cli_csv_and_report(tmp_path):
     assert (tmp_path / "c.csv").read_text(encoding="utf-8").startswith("camada;")
     assert cli.main(["relatorio", "-o", str(tmp_path / "r.pdf"), "--cn", "20"]) == 0
     assert (tmp_path / "r.pdf").read_bytes()[:4] == b"%PDF"
+
+
+def test_video_heavy_corruption_terminates(tmp_path):
+    """Regressão: PTS corrompido fazia o FFmpeg gerar quadros sem fim e travar a simulação."""
+    from isdbt_analyzer.core import video
+    if not video.find_ffmpeg():
+        pytest.skip("FFmpeg indisponível")
+    r = video.simulate_video(None, 5e6, per=0.4, byte_error=0.05, workdir=tmp_path, seed=1, max_seconds=3)
+    n_orig = video.count_frames(r.original_view)
+    assert r.stats.corrupted > 0
+    assert 0 < video.count_frames(r.corrupted_view) <= n_orig

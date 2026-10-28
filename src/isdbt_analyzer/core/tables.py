@@ -114,10 +114,15 @@ def uncoded_ber(modulation: str, esn0_db, channel: str = "AWGN", cfg: Transmissi
     prof = PROFILES[channel]
     if prof.is_awgn:
         return ber_uncoded(modulation, esn0_db)
-    st = ChannelState.build(prof, cfg or TransmissionConfig())
+    st = _channel_state_cached(channel, (cfg or TransmissionConfig()).mode, (cfg or TransmissionConfig()).guard)
     eff = np.array([st.effective_esn0_db(e) for e in np.atleast_1d(esn0_db)])
-    g = st.power_gains()[:: max(1, st.h.size // 1024)]
-    return np.array([ber_uncoded(modulation, e, g)[0] for e in eff])
+    g = st.power_gains()[:: max(1, st.h.size // 384)]
+    return ber_uncoded(modulation, eff, g)
+
+
+@lru_cache(maxsize=32)
+def _channel_state_cached(channel: str, mode: int, guard: str) -> ChannelState:
+    return ChannelState.build(PROFILES[channel], TransmissionConfig(mode=mode, guard=guard))
 
 
 # ---------------------------------------------------------------------------

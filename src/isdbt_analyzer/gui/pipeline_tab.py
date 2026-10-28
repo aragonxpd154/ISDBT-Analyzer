@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 
 import numpy as np
 import pyqtgraph as pg
@@ -29,8 +30,11 @@ from . import theme
 from .fec_worker import FecWorker
 from .state import AppState
 
-BUFFER = 2400
-PER_TICK = 360
+BUFFER = 2400        # símbolos usados no cálculo do MER
+PER_TICK = 300       # símbolos novos por quadro
+BINS = 180           # resolução do mapa de densidade das constelações
+DECAY = 0.82         # persistência (0 = sem memória, 1 = acumula para sempre)
+BASE_INTERVAL = 80   # ms entre quadros (ajustado sozinho se a máquina for lenta)
 
 STAGES = [
     ("ts", "TS\n188 B"),
@@ -144,6 +148,7 @@ def _kpi(title: str) -> tuple[QFrame, QLabel, QLabel]:
     t.setObjectName("kpiTitle")
     val = QLabel("—")
     val.setObjectName("kpiValue")
+    val.setMinimumWidth(140)
     sub = QLabel("")
     sub.setObjectName("muted")
     v.addWidget(t)
@@ -170,19 +175,68 @@ class ConstPlot(pg.PlotWidget):
         self.setMenuEnabled(False)
         self.set_lim(lim)
         self.setTitle(title)
-        self.showGrid(x=True, y=True, alpha=0.15)
-        for ax in ("left", "bottom"):
-            self.getAxis(ax).setStyle(tickLength=-4)
+        # sem eixos numéricos: redesenhá-los a cada quadro era o maior custo da tela.
+        # Uma cruz discreta em I=0 / Q=0 basta como referência.
+        self.hideAxis("left")
+        self.hideAxis("bottom")
+        self.axes_lines = [pg.InfiniteLine(pos=0, angle=ang, movable=False) for ang in (0, 90)]
+        for ln in self.axes_lines:
+            ln.setZValue(-2)
+            self.addItem(ln)
+        # pontos discretos (só a constelação ideal transmitida usa)
         self.scatter = pg.ScatterPlotItem(size=3, pen=None)
         self.addItem(self.scatter)
+        # mapa de densidade com persistência: barato de desenhar e sem piscar
+        self.img = pg.ImageItem()
+        self.img.setZValue(-1)
+        self.addItem(self.img)
+        self.acc_ok = np.zeros((BINS, BINS), np.float32)
+        self.acc_err = np.zeros((BINS, BINS), np.float32)
         self.ideal = pg.ScatterPlotItem(size=8, symbol="+", pen=pg.mkPen("#ffffff", width=1.2), brush=None)
         self.addItem(self.ideal)
         self.extra: list = []
 
     def set_lim(self, lim: float) -> None:
         """Mostra o quadrado [-lim, lim]² inteiro (o aspecto travado amplia o eixo que sobrar)."""
+        changed = getattr(self, "lim", None) != lim
         self.lim = lim
         self.getViewBox().setRange(xRange=(-lim, lim), yRange=(-lim, lim), padding=0)
+        if changed and hasattr(self, "img"):
+            self.clear_density()
+
+    def clear_density(self) -> None:
+        self.acc_ok[:] = 0
+        self.acc_err[:] = 0
+        self.img.clear()
+
+    def show_density(self, pts: np.ndarray, color: str, err: np.ndarray | None = None) -> None:
+        """Acumula os pontos num histograma 2D com decaimento e desenha como imagem RGBA."""
+        lim = self.lim
+        rng = [[-lim, lim], [-lim, lim]]
+        h, _, _ = np.histogram2d(pts.real, pts.imag, bins=BINS, range=rng)
+        self.acc_ok *= DECAY
+        self.acc_ok += h.astype(np.float32)
+        self.acc_err *= DECAY
+        if err is not None and err.size:
+            he, _, _ = np.histogram2d(err.real, err.imag, bins=BINS, range=rng)
+            self.acc_err += he.astype(np.float32)
+        top = max(float(self.acc_ok.max()), 1.0)
+        a = np.sqrt(np.clip(self.acc_ok / (0.35 * top), 0.0, 1.0))
+        rgba = np.empty((BINS, BINS, 4), np.uint8)
+        c = pg.mkColor(color)
+        rgba[..., 0], rgba[..., 1], rgba[..., 2] = c.red(), c.green(), c.blue()
+        rgba[..., 3] = (a * 255).astype(np.uint8)
+        if err is not None:
+            e = self.acc_err > 0.05
+            # engrossa cada erro para 3×3 bins, para ficar bem visível
+            d = e.copy()
+            d[1:, :] |= e[:-1, :]
+            d[:-1, :] |= e[1:, :]
+            d[:, 1:] |= d[:, :-1].copy()
+            d[:, :-1] |= d[:, 1:].copy()
+            rgba[d] = (229, 72, 77, 255)
+        self.img.setImage(rgba, autoLevels=False, levels=(0, 255))
+        self.img.setRect(QRectF(-lim, -lim, 2 * lim, 2 * lim))
 
     def resizeEvent(self, ev) -> None:  # noqa: N802
         super().resizeEvent(ev)
@@ -193,9 +247,8 @@ class ConstPlot(pg.PlotWidget):
         c = theme.colors()
         self.setBackground(c["plot_bg"])
         self.getPlotItem().titleLabel.setText(self.getPlotItem().titleLabel.text, color=c["text"], size="10pt")
-        for ax in ("left", "bottom"):
-            self.getAxis(ax).setTextPen(c["muted"])
-            self.getAxis(ax).setPen(c["grid"])
+        for ln in self.axes_lines:
+            ln.setPen(pg.mkPen(c["grid"], width=1))
         self.ideal.setPen(pg.mkPen(c["text"], width=1.2))
 
     def clear_extra(self) -> None:
@@ -261,6 +314,7 @@ class PipelineTab(QWidget):
         self.thr_line = pg.InfiniteLine(pos=4.5, angle=90, pen=pg.mkPen(theme.WARN, width=1.5, style=Qt.DashLine),
                                         label="RS corrige até 8", labelOpts={"position": 0.88, "color": theme.WARN})
         self.p_hist.addItem(self.thr_line)
+        self.p_hist.setYRange(0, 100, padding=0.02)
         bottom.addWidget(self.p_hist, 3)
 
         kpis = QGridLayout()
@@ -283,7 +337,10 @@ class PipelineTab(QWidget):
         state.changed.connect(self.on_state)
 
         self.timer = QTimer(self)
-        self.timer.setInterval(66)
+        self.timer.setInterval(BASE_INTERVAL)
+        self._cost = 0.0
+        self._last_kpi = 0.0
+        self._visual_key = None
         self.timer.timeout.connect(self.tick)
         self.apply_theme()
 
@@ -326,9 +383,8 @@ class PipelineTab(QWidget):
     # ---------------------------------------------------------------- estado
     def _reset_buffers(self) -> None:
         self.buf_tx = np.zeros(0, complex)
-        self.buf_rx = np.zeros(0, complex)
         self.buf_eq = np.zeros(0, complex)
-        self.buf_err = np.zeros(0, bool)
+        self.local = {"bits": 0, "bit_errors": 0, "symbols": 0, "symbol_errors": 0}
 
     def _reset_counters(self) -> None:
         self.acc = {"bits": 0, "raw_bits": 0, "raw_bit_errors": 0, "vit_bit_errors": 0, "bytes_total": 0,
@@ -346,6 +402,15 @@ class PipelineTab(QWidget):
         lay = self.state.focus()
         self._reset_buffers()
         self.restart_worker_params()
+        self._last_kpi = 0.0
+        for pw in (self.p_rx, self.p_eq, self.p_dec):
+            pw.clear_density()
+        st = self.state
+        key = (lay, st.channel_name, st.sfn_delay_us, st.sfn_level_db, st.cfg.mode, st.cfg.guard,
+               theme.is_dark())
+        if key == self._visual_key:
+            return  # só o C/N mudou: não precisa redesenhar eixos, rótulos e |H(f)|
+        self._visual_key = key
         color = LAYER_COLORS.get(lay.name, theme.ACCENT)
         self.layer_color = color
         ideal, labels = constellation(lay.modulation)
@@ -385,28 +450,26 @@ class PipelineTab(QWidget):
 
     # ---------------------------------------------------------------- simulação
     def tick(self) -> None:
+        t0 = time.perf_counter()
         lay = self.state.focus()
         k = P.MODULATIONS[lay.modulation]
         bits = self.rng.integers(0, 2, PER_TICK * k, dtype=np.uint8)
         sym = map_bits(bits, lay.modulation)
         rx, eq, _, _ = self.state.channel_state().apply(sym, self.state.cn_db, self.rng)
-        dec = demap_hard(eq, lay.modulation).reshape(-1, k)
-        err = np.any(dec != bits.reshape(-1, k), axis=1)
+        dec_bits = demap_hard(eq, lay.modulation)
+        bit_err = dec_bits != bits
+        err = bit_err.reshape(-1, k).any(axis=1)
+        self.local["bits"] += bits.size
+        self.local["bit_errors"] += int(bit_err.sum())
+        self.local["symbols"] += sym.size
+        self.local["symbol_errors"] += int(err.sum())
         self.buf_tx = np.concatenate([self.buf_tx, sym])[-BUFFER:]
-        self.buf_rx = np.concatenate([self.buf_rx, rx])[-BUFFER:]
         self.buf_eq = np.concatenate([self.buf_eq, eq])[-BUFFER:]
-        self.buf_err = np.concatenate([self.buf_err, err])[-BUFFER:]
 
         color = self.layer_color
-        self.p_rx.scatter.setData(self.buf_rx.real, self.buf_rx.imag, brush=pg.mkBrush(theme.WARN + "88"))
-        self.p_eq.scatter.setData(self.buf_eq.real, self.buf_eq.imag, brush=pg.mkBrush(color + "99"))
-        ok = ~self.buf_err
-        pts_ok = self.buf_eq[ok]
-        pts_bad = self.buf_eq[~ok]
-        self.p_dec.scatter.setData(
-            np.concatenate([pts_ok.real, pts_bad.real]), np.concatenate([pts_ok.imag, pts_bad.imag]),
-            brush=[pg.mkBrush(color + "55")] * pts_ok.size + [pg.mkBrush(theme.BAD)] * pts_bad.size,
-            size=[3] * pts_ok.size + [5] * pts_bad.size)
+        self.p_rx.show_density(rx, theme.WARN)
+        self.p_eq.show_density(eq, color)
+        self.p_dec.show_density(eq[~err], color, eq[err])
 
         # resultados do processo de FEC
         if self.worker:
@@ -415,48 +478,74 @@ class PipelineTab(QWidget):
                     continue
                 for key in self.acc:
                     self.acc[key] = self.acc[key] + r[key]
-        self.update_kpis(lay)
+
+        # números e diagrama: ~4 vezes por segundo bastam e evitam re-layout constante
+        now = time.perf_counter()
+        if now - self._last_kpi > 0.25:
+            self._last_kpi = now
+            self.update_kpis(lay)
+
+        # se a máquina não acompanha, desacelera sozinho (a interface nunca trava)
+        cost_ms = (time.perf_counter() - t0) * 1000
+        self._cost = 0.8 * self._cost + 0.2 * cost_ms
+        target = int(min(400, max(BASE_INTERVAL, self._cost * 3)))
+        if abs(target - self.timer.interval()) > 15:
+            self.timer.setInterval(target)
+
+    def _set_label(self, label: QLabel, text: str, color: str | None = None) -> None:
+        """Só mexe no widget quando algo muda (evita repaint e re-layout desnecessários)."""
+        if label.text() != text:
+            label.setText(text)
+        if color is not None and label.property("_color") != color:
+            label.setProperty("_color", color)
+            label.setStyleSheet(f"color: {color}")
 
     def update_kpis(self, lay) -> None:
         a = self.acc
-        mer = mer_db(self.buf_eq, nearest_points(self.buf_eq, lay.modulation)) if self.buf_eq.size else float("nan")
-        mer_true = mer_db(self.buf_eq, self.buf_tx) if self.buf_eq.size else float("nan")
-        raw = a["raw_bit_errors"] / a["raw_bits"] if a["raw_bits"] else float("nan")
+        lo = self.local
+        muted = theme.colors()["muted"]
+        if self.buf_eq.size:
+            mer = mer_db(self.buf_eq, nearest_points(self.buf_eq, lay.modulation))
+            mer_true = mer_db(self.buf_eq, self.buf_tx)
+        else:
+            mer = mer_true = float("nan")
+        raw = lo["bit_errors"] / lo["bits"] if lo["bits"] else float("nan")
+        sym_err = lo["symbol_errors"] / lo["symbols"] if lo["symbols"] else float("nan")
         vit = a["vit_bit_errors"] / a["bits"] if a["bits"] else float("nan")
         per = a["rs_failures"] / a["packets"] if a["packets"] else float("nan")
-        sym_err = float(self.buf_err.mean()) if self.buf_err.size else float("nan")
 
-        self.k_mer[1].setText(f"{mer_true:.1f} dB")
-        self.k_mer[2].setText(f"medido no receptor: {mer:.1f} dB")
-        self.k_raw[1].setText(_fmt_ber(raw))
-        self.k_raw[2].setText(f"símbolos errados: {sym_err * 100:.2f} %")
+        self._set_label(self.k_mer[1], f"{mer_true:.1f} dB")
+        self._set_label(self.k_mer[2], f"medido no receptor: {mer:.1f} dB")
+        self._set_label(self.k_raw[1], _fmt_ber(raw))
+        self._set_label(self.k_raw[2], f"símbolos errados: {sym_err * 100:.2f} %")
         vit_txt = _fmt_ber(vit)
         if a["bits"] and a["vit_bit_errors"] == 0:
             vit_txt = f"< {1 / a['bits']:.0e}"
-        self.k_vit[1].setText(vit_txt)
-        self.k_vit[2].setText(f"limite QEF: {QEF_BER:.0e}")
-        self.k_per[1].setText("—" if math.isnan(per) else f"{per * 100:.3g} %")
-        self.k_per[2].setText(f"{a['rs_failures']} pacotes perdidos")
-        self.k_pk[1].setText(f"{a['packets']:,}".replace(",", "."))
-        self.k_pk[2].setText(f"{a['bits'] / 1e6:.1f} Mbit decodificados")
+        if math.isnan(vit):
+            vit_color = muted
+        else:
+            vit_color = theme.GOOD if vit <= QEF_BER else theme.BAD
+        self._set_label(self.k_vit[1], vit_txt, vit_color)
+        self._set_label(self.k_vit[2], f"limite QEF: {QEF_BER:.0e}")
+        if math.isnan(per):
+            per_color = muted
+        else:
+            per_color = theme.GOOD if per == 0 else (theme.WARN if per < 0.01 else theme.BAD)
+        self._set_label(self.k_per[1], "—" if math.isnan(per) else f"{per * 100:.3g} %", per_color)
+        self._set_label(self.k_per[2], f"{a['rs_failures']} pacotes perdidos")
+        self._set_label(self.k_pk[1], f"{a['packets']:,}".replace(",", "."))
+        self._set_label(self.k_pk[2], f"{a['bits'] / 1e6:.1f} Mbit decodificados")
 
         if math.isnan(vit):
-            status, color = "medindo…", theme.colors()["muted"]
+            status, color = "medindo…", muted
         elif per > 0.01:
             status, color = "SEM SERVIÇO", theme.BAD
         elif vit > QEF_BER or a["rs_failures"] > 0:
             status, color = "DEGRADADO", theme.WARN
         else:
             status, color = "QEF ✓", theme.GOOD
-        self.k_status[1].setText(status)
-        self.k_status[1].setStyleSheet(f"color: {color}")
-        self.k_status[2].setText(f"C/N {self.state.cn_db:.1f} dB · {lay.modulation} {lay.code_rate}")
-        self.k_vit[1].setStyleSheet(f"color: {theme.GOOD if (not math.isnan(vit) and vit <= QEF_BER) else theme.BAD}")
-        if math.isnan(per):
-            per_color = theme.colors()["muted"]
-        else:
-            per_color = theme.GOOD if per == 0 else (theme.WARN if per < 0.01 else theme.BAD)
-        self.k_per[1].setStyleSheet(f"color: {per_color}")
+        self._set_label(self.k_status[1], status, color)
+        self._set_label(self.k_status[2], f"C/N {self.state.cn_db:.1f} dB · {lay.modulation} {lay.code_rate}")
 
         # histograma
         h = a["hist"]
@@ -466,16 +555,15 @@ class PipelineTab(QWidget):
         pct = np.array(groups, dtype=float) / tot * 100
         self.hist_ok.setOpts(height=pct[:5])
         self.hist_bad.setOpts(height=pct[5:])
-        self.p_hist.setYRange(0, 100)
 
         def health(v, good, warn):
             if v is None or math.isnan(v):
-                return theme.colors()["muted"]
+                return muted
             return theme.GOOD if v <= good else (theme.WARN if v <= warn else theme.BAD)
 
         st = self.state.channel_state()
         metrics = {
-            "ts": (f"{self.state.cfg.layer_rate(lay) / 1e6:.2f} Mb/s", theme.colors()["muted"]),
+            "ts": (f"{self.state.cfg.layer_rate(lay) / 1e6:.2f} Mb/s", muted),
             "ch": (f"C/N {self.state.cn_db:.1f} dB", theme.WARN if st.isi_fraction == 0 else theme.BAD),
             "eq": (f"MER {mer_true:.1f}", theme.colors()["text"]),
             "demap": (_fmt_ber(raw), health(raw, 1e-3, 5e-2)),
@@ -485,7 +573,9 @@ class PipelineTab(QWidget):
         }
         fmt = {"rate": lay.code_rate, "I": lay.interleave, "mod": lay.modulation,
                "ch": self.state.channel_name.replace("Brasil ", "Br. ")}
-        self.diagram.set_info(fmt, metrics)
+        if (fmt, metrics) != getattr(self, "_last_diagram", None):
+            self._last_diagram = (fmt, metrics)
+            self.diagram.set_info(fmt, metrics)
 
     # ---------------------------------------------------------------- ações
     def toggle_pause(self) -> None:

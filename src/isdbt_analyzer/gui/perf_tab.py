@@ -89,8 +89,23 @@ class PerformanceTab(QWidget):
         self.btn_auto.clicked.connect(self.auto_range)
         self.btn_png.clicked.connect(self.export_png)
         self.btn_csv.clicked.connect(self.export_csv)
-        state.changed.connect(self.redraw)
+        state.changed.connect(self.request)
         self._auto_done = False
+        self._dirty = True
+
+    # ------------------------------------------------------------ redesenho só quando visível
+    def request(self) -> None:
+        if self.isVisible():
+            self._dirty = False
+            self.redraw()
+        else:
+            self._dirty = True
+
+    def showEvent(self, ev) -> None:  # noqa: N802
+        super().showEvent(ev)
+        if getattr(self, "_dirty", True):
+            self._dirty = False
+            self.redraw()
 
     def auto_range(self) -> None:
         perf = layer_performance(self.state.cfg, self.state.table_channel() or "AWGN")

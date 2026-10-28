@@ -1,5 +1,20 @@
 # Histórico de versões
 
+## 2.0.1 — desempenho da interface
+
+- **Interface não trava mais.** As constelações viraram um mapa de densidade com persistência, sem eixos
+  numéricos redesenhados a cada quadro. Cada quadro caiu de ≈52 ms para ≈18 ms, e numa máquina de um núcleo o
+  atraso máximo da janela caiu de ≈600 ms para menos de 30 ms.
+- **Ritmo adaptativo:** se a máquina não acompanha, o pipeline reduz sozinho a taxa de quadros.
+- **Sem piscar:** números e cores só são atualizados quando mudam (cerca de 4 vezes por segundo), e mudar
+  só o C/N não reconstrói a tela inteira.
+- **Abas pesadas sob demanda:** os gráficos de Desempenho e OFDM só redesenham quando estão visíveis. A BER
+  sem FEC em canais com multipercurso ficou cerca de 3 vezes mais rápida.
+- **Simulação de FEC com prioridade baixa**, BLAS com 1 thread e o primeiro resultado em menos de 1 s.
+- **Correção grave no vídeo:** um PTS corrompido fazia o FFmpeg gerar quadros sem fim, ocupando 100% da CPU
+  mesmo depois de fechar o programa. Agora a decodificação é limitada ao número de quadros do original, tem
+  tempo máximo, roda com prioridade baixa, e todo FFmpeg é encerrado ao sair.
+
 ## 2.0.0 — reescrita para Linux
 
 ### Correções de cálculo (afetam os resultados da v1.x)
