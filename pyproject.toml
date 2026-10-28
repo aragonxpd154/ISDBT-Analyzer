@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isdbt-analyzer"
+dynamic = ["version"]
+description = "Previsão de desempenho e simulação didática do ISDB-T / ISDB-Tb (camadas, BER/PER, constelações ao vivo, vídeo em TS)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Marcos Silva dos Santos" }]
+keywords = ["isdb-t", "isdb-tb", "sbtvd", "ofdm", "ber", "viterbi", "reed-solomon", "broadcast", "tv digital"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Telecommunications Industry",
+    "Topic :: Scientific/Engineering",
+    "Natural Language :: Portuguese (Brazilian)",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "Pillow>=10.0",
+    "PySide6-Essentials>=6.5",
+    "pyqtgraph>=0.13.3",
+    "opencv-python-headless>=4.8",
+    "imageio-ffmpeg>=0.4.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/aragonxpd154/ISDBT-Analyzer"
+Issues = "https://github.com/aragonxpd154/ISDBT-Analyzer/issues"
+
+[project.scripts]
+isdbt-analyzer = "isdbt_analyzer.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "isdbt_analyzer.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+isdbt_analyzer = ["resources/*.png", "resources/*.json", "resources/*.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false

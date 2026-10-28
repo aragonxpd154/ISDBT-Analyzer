@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=ISDB-T Analyzer
+GenericName=Analisador de desempenho ISDB-T
+Comment=Camadas, BER/PER, constelações ao vivo e simulação de vídeo em TS para ISDB-Tb
+Exec=@EXEC@
+Icon=@ICON@
+Terminal=false
+Categories=Education;Science;Engineering;
+Keywords=ISDB-T;ISDB-Tb;SBTVD;TV digital;OFDM;BER;Viterbi;Reed-Solomon;broadcast;
+StartupWMClass=isdbt-analyzer
+StartupNotify=true
